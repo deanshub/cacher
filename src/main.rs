@@ -1,5 +1,6 @@
 use cacher::CommandCache;
 use clap::{Parser, Subcommand};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -20,6 +21,20 @@ enum Commands {
         #[arg(num_args = 0..)]
         args: Vec<String>,
     },
+    
+    /// List cached commands
+    List,
+    
+    /// Clear the cache
+    Clear {
+        /// Clear all cached commands
+        #[arg(short, long)]
+        all: bool,
+        
+        /// Clear a specific command
+        #[arg(short, long)]
+        command: Option<String>,
+    },
 }
 
 fn main() {
@@ -35,10 +50,59 @@ fn main() {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("Error executing command: {}", e),
             }
-        }
+        },
+        Some(Commands::List) => {
+            match cache.list_cached_commands() {
+                Ok(entries) => {
+                    if entries.is_empty() {
+                        println!("No cached commands found.");
+                    } else {
+                        println!("Cached commands:");
+                        for (i, (command, timestamp)) in entries.iter().enumerate() {
+                            let age = format_time_ago(timestamp);
+                            println!("{}. {} ({})", i + 1, command, age);
+                        }
+                    }
+                },
+                Err(e) => eprintln!("Error listing cache: {}", e),
+            }
+        },
+        Some(Commands::Clear { all, command }) => {
+            if *all {
+                match cache.clear_cache(None) {
+                    Ok(count) => println!("Cleared {} cached commands.", count),
+                    Err(e) => eprintln!("Error clearing cache: {}", e),
+                }
+            } else if let Some(cmd) = command {
+                match cache.clear_cache(Some(cmd)) {
+                    Ok(1) => println!("Cleared cache for command: {}", cmd),
+                    Ok(0) => println!("No cache found for command: {}", cmd),
+                    Ok(_) => unreachable!(),
+                    Err(e) => eprintln!("Error clearing cache: {}", e),
+                }
+            } else {
+                println!("Please specify --all to clear all cache or --command to clear a specific command.");
+            }
+        },
         None => {
             println!("Cacher CLI - A tool for caching command outputs");
             println!("Use --help for usage information");
         }
+    }
+}
+
+fn format_time_ago(timestamp: &SystemTime) -> String {
+    if let Ok(duration) = SystemTime::now().duration_since(*timestamp) {
+        if duration.as_secs() < 60 {
+            format!("{} seconds ago", duration.as_secs())
+        } else if duration.as_secs() < 3600 {
+            format!("{} minutes ago", duration.as_secs() / 60)
+        } else if duration.as_secs() < 86400 {
+            format!("{} hours ago", duration.as_secs() / 3600)
+        } else {
+            format!("{} days ago", duration.as_secs() / 86400)
+        }
+    } else {
+        "unknown time".to_string()
     }
 }
