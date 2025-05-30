@@ -43,6 +43,17 @@ enum Commands {
         #[arg(short, long)]
         command: Option<String>,
     },
+    
+    /// Get the UUID (hash) for a command
+    Hash {
+        /// The command to get the hash for
+        #[arg(required = true)]
+        command: String,
+        
+        /// Arguments for the command
+        #[arg(num_args = 0..)]
+        args: Vec<String>,
+    },
 }
 
 fn main() {
@@ -71,7 +82,9 @@ fn main() {
                         println!("Cached commands:");
                         for (i, (command, timestamp)) in entries.iter().enumerate() {
                             let age = format_time_ago(timestamp);
+                            let hash = cache.generate_id(command);
                             println!("{}. {} ({})", i + 1, command, age);
+                            println!("   Hash: {}", hash);
                         }
                     }
                 },
@@ -94,6 +107,14 @@ fn main() {
             } else {
                 println!("Please specify --all to clear all cache or --command to clear a specific command.");
             }
+        },
+        Some(Commands::Hash { command, args }) => {
+            // Combine command and args into a single string
+            let full_command = format!("{} {}", command, args.join(" ")).trim().to_string();
+            
+            // Generate and display the hash
+            let hash = cache.generate_id(&full_command);
+            println!("{}", hash);
         },
         None => {
             println!("Cacher CLI - A tool for caching command outputs");

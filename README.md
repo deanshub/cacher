@@ -10,6 +10,7 @@ A command-line tool for caching command outputs to save time when running repeti
 - Force execution to bypass cache
 - List all cached commands
 - Clear specific or all cached entries
+- Get hash ID for any command
 
 ## Installation
 
@@ -54,6 +55,12 @@ cacher clear --all
 
 # Clear specific command
 cacher clear --command "ls -la"
+```
+
+### Get hash ID for a command
+
+```bash
+cacher hash "ls -la"
 ```
 
 ## How it works
