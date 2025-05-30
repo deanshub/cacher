@@ -2,6 +2,13 @@
 name = "cacher"
 version = "0.1.0"
 edition = "2021"
+description = "A CLI tool for caching command outputs"
+authors = ["Dean Shub"]
+license = "MIT"
+repository = "https://github.com/deanshub/cacher"
+readme = "README.md"
+keywords = ["cli", "cache", "command", "terminal", "utility"]
+categories = ["command-line-utilities", "caching"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
