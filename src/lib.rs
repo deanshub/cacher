@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::io::{self, Error, ErrorKind, Read, Write};
 use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use sha2::{Sha256, Digest};
 use dirs::cache_dir;
+use std::time::{Duration, SystemTime};
 
 pub struct CacheEntry {
     pub command: String,
     pub output: String,
-    pub timestamp: std::time::SystemTime,
+    pub timestamp: SystemTime,
 }
 
 pub struct CommandCache {
@@ -57,7 +58,7 @@ impl CommandCache {
         let entry = CacheEntry {
             command: command.to_string(),
             output: output.to_string(),
-            timestamp: std::time::SystemTime::now(),
+            timestamp: SystemTime::now(),
         };
         
         let json = format!(
@@ -96,17 +97,33 @@ impl CommandCache {
         Err(Error::new(ErrorKind::InvalidData, "Invalid cache file format"))
     }
     
-    pub fn execute_and_cache(&mut self, command: &str) -> io::Result<String> {
-        // First check in-memory cache
-        if let Some(output) = self.get(command) {
-            return Ok(output.clone());
-        }
-        
-        // Then check disk cache
-        if let Ok(Some(output)) = self.load_from_disk(command) {
-            // Store in memory cache too
-            self.store(command, &output);
-            return Ok(output);
+    pub fn execute_and_cache(&mut self, command: &str, ttl: Option<Duration>, force: bool) -> io::Result<String> {
+        // If force is true, skip cache lookup
+        if !force {
+            // First check in-memory cache
+            if let Some(output) = self.get(command) {
+                return Ok(output.clone());
+            }
+            
+            // Then check disk cache
+            if let Ok(Some((output, timestamp))) = self.load_from_disk_with_timestamp(command) {
+                // Check if cache is still valid based on TTL
+                if let Some(ttl_duration) = ttl {
+                    if let Ok(age) = SystemTime::now().duration_since(timestamp) {
+                        if age > ttl_duration {
+                            // Cache is expired, don't use it
+                        } else {
+                            // Cache is still valid
+                            self.store(command, &output);
+                            return Ok(output);
+                        }
+                    }
+                } else {
+                    // No TTL specified, use cache regardless of age
+                    self.store(command, &output);
+                    return Ok(output);
+                }
+            }
         }
         
         // Parse command into program and arguments
@@ -142,7 +159,46 @@ impl CommandCache {
         Ok(output_str)
     }
     
-    pub fn list_cached_commands(&self) -> io::Result<Vec<(String, std::time::SystemTime)>> {
+    pub fn load_from_disk_with_timestamp(&self, command: &str) -> io::Result<Option<(String, SystemTime)>> {
+        let id = self.generate_id(command);
+        let path = self.get_cache_path(&id);
+        
+        if !path.exists() {
+            return Ok(None);
+        }
+        
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        
+        // Extract output and timestamp from JSON
+        let mut output = String::new();
+        let mut timestamp = SystemTime::UNIX_EPOCH;
+        
+        if let Some(start) = contents.find("\"output\":\"") {
+            if let Some(end) = contents[start + 10..].find("\"") {
+                output = contents[start + 10..start + 10 + end]
+                    .replace("\\n", "\n")
+                    .replace("\\\"", "\"");
+            }
+        }
+        
+        if let Some(start) = contents.find("\"timestamp\":") {
+            if let Some(end) = contents[start + 12..].find("}") {
+                if let Ok(secs) = contents[start + 12..start + 12 + end].trim().parse::<u64>() {
+                    timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+                }
+            }
+        }
+        
+        if output.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidData, "Invalid cache file format"));
+        }
+        
+        Ok(Some((output, timestamp)))
+    }
+    
+    pub fn list_cached_commands(&self) -> io::Result<Vec<(String, SystemTime)>> {
         let mut entries = Vec::new();
         
         if !self.cache_dir.exists() {
@@ -159,7 +215,7 @@ impl CommandCache {
                     if file.read_to_string(&mut contents).is_ok() {
                         // Simple parsing to extract command and timestamp fields from JSON
                         let mut command = String::new();
-                        let mut timestamp = std::time::SystemTime::UNIX_EPOCH;
+                        let mut timestamp = SystemTime::UNIX_EPOCH;
                         
                         if let Some(start) = contents.find("\"command\":\"") {
                             if let Some(end) = contents[start + 11..].find("\"") {
@@ -172,7 +228,7 @@ impl CommandCache {
                         if let Some(start) = contents.find("\"timestamp\":") {
                             if let Some(end) = contents[start + 12..].find("}") {
                                 if let Ok(secs) = contents[start + 12..start + 12 + end].trim().parse::<u64>() {
-                                    timestamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+                                    timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
                                 }
                             }
                         }
@@ -228,6 +284,7 @@ impl CommandCache {
 mod tests {
     use super::*;
     use std::fs;
+    use std::thread::sleep;
 
     #[test]
     fn test_store_and_retrieve() {
@@ -256,13 +313,13 @@ mod tests {
         let command = "echo hello";
         
         // First execution should run the command
-        let result = cache.execute_and_cache(command);
+        let result = cache.execute_and_cache(command, None, false);
         assert!(result.is_ok());
         let output = result.unwrap();
         assert!(output.contains("hello"));
         
         // Second execution should use the cache
-        let cached_result = cache.execute_and_cache(command);
+        let cached_result = cache.execute_and_cache(command, None, false);
         assert!(cached_result.is_ok());
         assert_eq!(cached_result.unwrap(), output);
     }
@@ -339,5 +396,27 @@ mod tests {
         for cmd in &commands[1..] {
             let _ = cache.clear_cache(Some(cmd));
         }
+    }
+    
+    #[test]
+    fn test_ttl_and_force() {
+        let mut cache = CommandCache::new();
+        let command = "echo ttl_test";
+        
+        // First execution
+        let result = cache.execute_and_cache(command, None, false);
+        assert!(result.is_ok());
+        
+        // Force execution (should not use cache)
+        let force_result = cache.execute_and_cache(command, None, true);
+        assert!(force_result.is_ok());
+        
+        // With very short TTL (1ms)
+        sleep(Duration::from_millis(10));
+        let ttl_result = cache.execute_and_cache(command, Some(Duration::from_millis(1)), false);
+        assert!(ttl_result.is_ok());
+        
+        // Clean up
+        let _ = cache.clear_cache(Some(command));
     }
 }

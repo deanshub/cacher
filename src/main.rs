@@ -1,6 +1,6 @@
 use cacher::CommandCache;
 use clap::{Parser, Subcommand};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -20,6 +20,14 @@ enum Commands {
         /// Arguments for the command
         #[arg(num_args = 0..)]
         args: Vec<String>,
+        
+        /// Time-to-live for cache in seconds (default: no TTL)
+        #[arg(short, long)]
+        ttl: Option<u64>,
+        
+        /// Force execution (ignore cache)
+        #[arg(short, long)]
+        force: bool,
     },
     
     /// List cached commands
@@ -42,11 +50,14 @@ fn main() {
     let mut cache = CommandCache::new();
     
     match &cli.command {
-        Some(Commands::Run { command, args }) => {
+        Some(Commands::Run { command, args, ttl, force }) => {
             // Combine command and args into a single string
             let full_command = format!("{} {}", command, args.join(" ")).trim().to_string();
             
-            match cache.execute_and_cache(&full_command) {
+            // Convert TTL to Duration if provided
+            let ttl_duration = ttl.map(|seconds| Duration::from_secs(seconds));
+            
+            match cache.execute_and_cache(&full_command, ttl_duration, *force) {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("Error executing command: {}", e),
             }
