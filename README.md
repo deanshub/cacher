@@ -89,7 +89,70 @@ cacher hash "ls -la"
 
 ### Using a .cacher hint file
 
-You can create a `.cacher.yaml` file in your project to customize caching behavior:
+You can create a `.cacher.yaml` file in your project to customize caching behavior. Cacher will automatically look for this file in the current directory and its parent directories.
+
+#### Basic Configuration
+
+```yaml
+# Default settings for all commands
+default:
+  ttl: 3600  # Default TTL in seconds (1 hour)
+  include_env:
+    - PATH
+    - NODE_ENV  # Include environment variables in cache key
+```
+
+#### Command Patterns
+
+Use glob patterns to match commands:
+
+```yaml
+commands:
+  - pattern: "npm run *"  # Matches all npm run commands
+    ttl: 7200  # 2 hours
+  
+  - pattern: "git status"  # Exact match
+    ttl: 60  # 1 minute
+```
+
+#### File Dependencies
+
+Specify files that should invalidate the cache when modified:
+
+```yaml
+commands:
+  - pattern: "npm run build"
+    depends_on:
+      - file: "package.json"  # Single file
+      - files: "src/**/*.js"  # Glob pattern for multiple files
+```
+
+#### Environment Variables
+
+Include specific environment variables in the cache key:
+
+```yaml
+commands:
+  - pattern: "docker-compose up"
+    include_env:
+      - DOCKER_HOST
+      - COMPOSE_PROJECT_NAME
+```
+
+#### Line Patterns
+
+Only consider specific lines in files using regex patterns:
+
+```yaml
+commands:
+  - pattern: "npm run dev"
+    depends_on:
+      - lines:
+          file: ".env"
+          pattern: "^(API_|DEV_)"  # Only match lines starting with API_ or DEV_
+```
+
+#### Complete Example
 
 ```yaml
 # Default settings for all commands
