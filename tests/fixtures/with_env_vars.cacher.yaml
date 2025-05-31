@@ -1,0 +1,6 @@
+# .cacher hint file with environment variables
+default:
+  ttl: 3600
+  include_env:
+    - PATH
+    - USER

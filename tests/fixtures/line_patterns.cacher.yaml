@@ -1,0 +1,13 @@
+# .cacher hint file with line patterns
+commands:
+  - pattern: "cat config.json"
+    depends_on:
+      - lines:
+          file: ".env"
+          pattern: "^DB_*"  # Only include DB_ environment variables
+          
+  - pattern: "docker-compose up"
+    depends_on:
+      - lines:
+          file: "docker-compose.yml"
+          pattern: "image: *"  # Match lines with image definitions

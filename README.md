@@ -87,6 +87,106 @@ cacher clear --command "ls -la"
 cacher hash "ls -la"
 ```
 
+### Using a .cacher hint file
+
+You can create a `.cacher.yaml` file in your project to customize caching behavior. Cacher will automatically look for this file in the current directory and its parent directories.
+
+#### Basic Configuration
+
+```yaml
+# Default settings for all commands
+default:
+  ttl: 3600  # Default TTL in seconds (1 hour)
+  include_env:
+    - PATH
+    - NODE_ENV  # Include environment variables in cache key
+```
+
+#### Command Patterns
+
+Use glob patterns to match commands:
+
+```yaml
+commands:
+  - pattern: "npm run *"  # Matches all npm run commands
+    ttl: 7200  # 2 hours
+  
+  - pattern: "git status"  # Exact match
+    ttl: 60  # 1 minute
+```
+
+#### File Dependencies
+
+Specify files that should invalidate the cache when modified:
+
+```yaml
+commands:
+  - pattern: "npm run build"
+    depends_on:
+      - file: "package.json"  # Single file
+      - files: "src/**/*.js"  # Glob pattern for multiple files
+```
+
+#### Environment Variables
+
+Include specific environment variables in the cache key:
+
+```yaml
+commands:
+  - pattern: "docker-compose up"
+    include_env:
+      - DOCKER_HOST
+      - COMPOSE_PROJECT_NAME
+```
+
+#### Line Patterns
+
+Only consider specific lines in files using regex patterns:
+
+```yaml
+commands:
+  - pattern: "npm run dev"
+    depends_on:
+      - lines:
+          file: ".env"
+          pattern: "^(API_|DEV_)"  # Only match lines starting with API_ or DEV_
+```
+
+#### Complete Example
+
+```yaml
+# Default settings for all commands
+default:
+  ttl: 3600  # Default TTL in seconds
+  include_env:
+    - PATH
+    - NODE_ENV
+
+# Command-specific settings
+commands:
+  # Cache npm build commands for 2 hours
+  - pattern: "npm run build"
+    ttl: 7200
+    include_env:
+      - NODE_ENV
+    depends_on:
+      - files: "src/**/*.{js,jsx,ts,tsx}"  # All source files
+      - files: "package*.json"             # package.json and package-lock.json
+      - file: "tsconfig.json"              # Specific file
+      
+  # Cache docker-compose commands for 1 day
+  - pattern: "docker-compose up *"
+    ttl: 86400
+    include_env:
+      - DOCKER_HOST
+    depends_on:
+      - file: "docker-compose.yml"
+      - files: "Dockerfile*"
+      - lines:
+          file: ".env"
+          pattern: "^(DB_|API_)"  # Only consider DB_ and API_ variables
+```
+
 ## How it works
 
 Cacher uses SHA-256 hashing to generate unique identifiers for each command. When you run a command through Cacher, it:

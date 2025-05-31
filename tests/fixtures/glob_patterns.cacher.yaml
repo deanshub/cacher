@@ -1,0 +1,10 @@
+# .cacher hint file with glob patterns
+commands:
+  - pattern: "npm run *"
+    depends_on:
+      - files: "package*.json"  # Matches package.json, package-lock.json
+      
+  - pattern: "webpack *"
+    depends_on:
+      - files: "src/**/*.js"  # All JS files in src directory and subdirectories
+      - files: "webpack.*.js"  # All webpack config files

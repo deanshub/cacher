@@ -1,0 +1,10 @@
+# .cacher hint file with file dependencies
+commands:
+  - pattern: "git status"
+    depends_on:
+      - file: ".git/HEAD"
+      - file: ".git/index"
+    
+  - pattern: "cat config.json"
+    depends_on:
+      - file: "config.json"

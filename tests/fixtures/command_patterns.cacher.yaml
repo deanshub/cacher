@@ -1,0 +1,7 @@
+# .cacher hint file with command patterns
+commands:
+  - pattern: "ls *"
+    ttl: 60
+    
+  - pattern: "git status"
+    ttl: 300

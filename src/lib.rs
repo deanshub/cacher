@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use sha2::{Sha256, Digest};
 use dirs::cache_dir;
 use std::time::{Duration, SystemTime};
+use std::env;
+use crate::hint_file::{HintFile, Dependency};
 
 pub struct CacheEntry {
     pub command: String,
@@ -16,6 +18,8 @@ pub struct CacheEntry {
 pub struct CommandCache {
     cache: HashMap<String, String>,
     cache_dir: PathBuf,
+    hint_file: Option<HintFile>,
+    current_dir: PathBuf,
 }
 
 impl CommandCache {
@@ -27,9 +31,17 @@ impl CommandCache {
         // Create cache directory if it doesn't exist
         let _ = fs::create_dir_all(&cache_dir);
         
+        // Get current directory
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        
+        // Try to load hint file
+        let hint_file = HintFile::find_hint_file(&current_dir);
+        
         CommandCache {
             cache: HashMap::new(),
             cache_dir,
+            hint_file,
+            current_dir,
         }
     }
 
@@ -43,7 +55,83 @@ impl CommandCache {
     
     pub fn generate_id(&self, command: &str) -> String {
         let mut hasher = Sha256::new();
+        
+        // Add the command itself to the hash
         hasher.update(command.as_bytes());
+        
+        // If we have a hint file, check for command-specific settings
+        if let Some(hint_file) = &self.hint_file {
+            // Check if there's a matching command pattern
+            if let Some(command_hint) = hint_file.find_matching_command(command) {
+                // Include specified environment variables in the hash
+                for env_var in &command_hint.include_env {
+                    if let Ok(value) = env::var(env_var) {
+                        hasher.update(format!("{}={}", env_var, value).as_bytes());
+                    }
+                }
+                
+                // Include file dependencies in the hash
+                for dependency in &command_hint.depends_on {
+                    match dependency {
+                        Dependency::File { file } => {
+                            let path = self.current_dir.join(file);
+                            if path.exists() {
+                                if let Ok(metadata) = fs::metadata(&path) {
+                                    if let Ok(modified) = metadata.modified() {
+                                        if let Ok(duration) = modified.duration_since(SystemTime::UNIX_EPOCH) {
+                                            hasher.update(format!("{}={}", file, duration.as_secs()).as_bytes());
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        Dependency::Files { files } => {
+                            // Use glob pattern to find matching files
+                            if let Ok(entries) = glob::glob(&format!("{}/{}", self.current_dir.display(), files)) {
+                                for entry in entries {
+                                    if let Ok(path) = entry {
+                                        if let Ok(metadata) = fs::metadata(&path) {
+                                            if let Ok(modified) = metadata.modified() {
+                                                if let Ok(duration) = modified.duration_since(SystemTime::UNIX_EPOCH) {
+                                                    if let Some(path_str) = path.to_str() {
+                                                        hasher.update(format!("{}={}", path_str, duration.as_secs()).as_bytes());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        Dependency::Lines { lines } => {
+                            let path = self.current_dir.join(&lines.file);
+                            if path.exists() {
+                                if let Ok(content) = fs::read_to_string(&path) {
+                                    if let Ok(regex) = regex::Regex::new(&lines.pattern) {
+                                        let mut matching_lines = String::new();
+                                        for line in content.lines() {
+                                            if regex.is_match(line) {
+                                                matching_lines.push_str(line);
+                                                matching_lines.push('\n');
+                                            }
+                                        }
+                                        hasher.update(matching_lines.as_bytes());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No specific command match, use default environment variables
+                for env_var in &hint_file.default.include_env {
+                    if let Ok(value) = env::var(env_var) {
+                        hasher.update(format!("{}={}", env_var, value).as_bytes());
+                    }
+                }
+            }
+        }
+        
         format!("{:x}", hasher.finalize())
     }
     
@@ -107,8 +195,11 @@ impl CommandCache {
             
             // Then check disk cache
             if let Ok(Some((output, timestamp))) = self.load_from_disk_with_timestamp(command) {
+                // Get TTL from hint file if available
+                let effective_ttl = self.get_effective_ttl(command, ttl);
+                
                 // Check if cache is still valid based on TTL
-                if let Some(ttl_duration) = ttl {
+                if let Some(ttl_duration) = effective_ttl {
                     if let Ok(age) = SystemTime::now().duration_since(timestamp) {
                         if age > ttl_duration {
                             // Cache is expired, don't use it
@@ -157,6 +248,26 @@ impl CommandCache {
         self.save_to_disk(command, &output_str)?;
         
         Ok(output_str)
+    }
+    
+    // Helper method to get effective TTL from hint file or fallback to provided TTL
+    pub fn get_effective_ttl(&self, command: &str, default_ttl: Option<Duration>) -> Option<Duration> {
+        if let Some(hint_file) = &self.hint_file {
+            // Check for command-specific TTL
+            if let Some(command_hint) = hint_file.find_matching_command(command) {
+                if let Some(ttl_seconds) = command_hint.ttl {
+                    return Some(Duration::from_secs(ttl_seconds));
+                }
+            }
+            
+            // Fall back to default TTL from hint file
+            if let Some(ttl_seconds) = hint_file.default.ttl {
+                return Some(Duration::from_secs(ttl_seconds));
+            }
+        }
+        
+        // Fall back to provided TTL
+        default_ttl
     }
     
     pub fn load_from_disk_with_timestamp(&self, command: &str) -> io::Result<Option<(String, SystemTime)>> {
@@ -418,5 +529,28 @@ mod tests {
         
         // Clean up
         let _ = cache.clear_cache(Some(command));
+    }
+}
+// Add the hint_file module
+pub mod hint_file;
+
+impl CommandCache {
+    /// Reload the hint file from the current directory
+    ///
+    /// This is useful when the hint file has been modified or when
+    /// the current directory has changed.
+    pub fn reload_hint_file(&mut self) {
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        self.current_dir = current_dir;
+        self.hint_file = HintFile::find_hint_file(&self.current_dir);
+    }
+    
+    /// Get a reference to the current hint file, if one is loaded
+    ///
+    /// # Returns
+    ///
+    /// An Option containing a reference to the HintFile, or None if no hint file is loaded
+    pub fn get_hint_file(&self) -> Option<&HintFile> {
+        self.hint_file.as_ref()
     }
 }
