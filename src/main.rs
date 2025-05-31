@@ -94,14 +94,12 @@ fn main() {
         Some(Commands::Clear { all, command }) => {
             if *all {
                 match cache.clear_cache(None) {
-                    Ok(count) => println!("Cleared {} cached commands.", count),
+                    Ok(_) => println!("Cleared all cached commands."),
                     Err(e) => eprintln!("Error clearing cache: {}", e),
                 }
             } else if let Some(cmd) = command {
                 match cache.clear_cache(Some(cmd)) {
-                    Ok(1) => println!("Cleared cache for command: {}", cmd),
-                    Ok(0) => println!("No cache found for command: {}", cmd),
-                    Ok(_) => unreachable!(),
+                    Ok(_) => println!("Cleared cache for command: {}", cmd),
                     Err(e) => eprintln!("Error clearing cache: {}", e),
                 }
             } else {
