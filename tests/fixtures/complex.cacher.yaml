@@ -1,0 +1,28 @@
+# Complex .cacher hint file combining multiple features
+default:
+  ttl: 3600
+  include_env:
+    - PATH
+    - NODE_ENV
+
+commands:
+  - pattern: "npm run build"
+    ttl: 7200
+    include_env:
+      - NODE_ENV
+    depends_on:
+      - files: "src/**/*.{js,jsx,ts,tsx}"
+      - files: "package*.json"
+      - file: "tsconfig.json"
+      - lines:
+          file: ".env"
+          pattern: "^(API_|REACT_APP_)"
+          
+  - pattern: "docker-compose up *"
+    ttl: 86400
+    include_env:
+      - DOCKER_HOST
+    depends_on:
+      - file: "docker-compose.yml"
+      - files: "Dockerfile*"
+      - files: ".env*"
