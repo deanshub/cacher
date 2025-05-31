@@ -418,12 +418,17 @@ impl CommandCache {
     pub fn restore_artifacts(&self, cache_id: String, artifacts: Vec<ArtifactType>) -> io::Result<bool> {
         let mut all_restored = true;
         
+        println!("Restoring artifacts for cache ID: {}", cache_id);
+        
         for artifact in artifacts {
+            println!("Restoring artifact: {:?}", artifact);
             if !self.artifact_manager.restore_artifact(&artifact, &cache_id, &self.current_dir)? {
+                println!("Failed to restore artifact");
                 all_restored = false;
             }
         }
         
+        println!("All artifacts restored: {}", all_restored);
         Ok(all_restored)
     }
     
@@ -434,7 +439,7 @@ impl CommandCache {
         if !force {
             // Check if we have a cached result with artifacts
             if let Some(artifacts) = self.get_command_artifacts(command) {
-                if self.restore_artifacts(id.clone(), artifacts).is_ok() {
+                if self.restore_artifacts(id.clone(), artifacts.clone()).is_ok() {
                     // If we successfully restored artifacts, also return the cached stdout
                     if let Ok(Some((output, timestamp))) = self.load_from_disk_with_timestamp(command) {
                         // Check TTL

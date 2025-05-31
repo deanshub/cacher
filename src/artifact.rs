@@ -90,6 +90,7 @@ impl ArtifactManager {
         let archive_path = artifacts_dir.join("directory.tar.gz");
         
         if !archive_path.exists() {
+            println!("Archive not found: {}", archive_path.display());
             return Ok(false);
         }
         
@@ -108,12 +109,15 @@ impl ArtifactManager {
             parent_dir.display()
         );
         
+        println!("Executing extract command: {}", extract_cmd);
+        
         let output = Command::new("sh")
             .arg("-c")
             .arg(&extract_cmd)
             .output()?;
             
         if !output.status.success() {
+            println!("Extraction failed: {}", String::from_utf8_lossy(&output.stderr));
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!(
@@ -122,6 +126,9 @@ impl ArtifactManager {
                 )
             ));
         }
+        
+        println!("Extraction successful, directory should exist at: {}", dir_path.display());
+        println!("Directory exists: {}", dir_path.exists());
         
         Ok(true)
     }

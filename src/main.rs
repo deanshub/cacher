@@ -68,7 +68,7 @@ fn main() {
             // Convert TTL to Duration if provided
             let ttl_duration = ttl.map(|seconds| Duration::from_secs(seconds));
             
-            match cache.execute_and_cache(&full_command, ttl_duration, *force) {
+            match cache.execute_and_cache_with_artifacts(&full_command, ttl_duration, *force) {
                 Ok(output) => println!("{}", output),
                 Err(e) => eprintln!("Error executing command: {}", e),
             }
