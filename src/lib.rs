@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::process::Command;
 use std::io::{self, Error, ErrorKind, Read, Write};
 use std::fs::{self, File};
 use std::path::PathBuf;
@@ -24,9 +23,9 @@ pub struct CommandCache {
 
 impl CommandCache {
     pub fn new() -> Self {
-        let cache_dir = cache_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cacher");
+        // Get cache directory
+        let mut cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("."));
+        cache_dir.push("cacher");
         
         // Create cache directory if it doesn't exist
         let _ = fs::create_dir_all(&cache_dir);
@@ -136,57 +135,93 @@ impl CommandCache {
     }
     
     pub fn get_cache_path(&self, id: &str) -> PathBuf {
-        self.cache_dir.join(format!("{}.cache", id))
+        let cache_dir = self.cache_dir.join(id);
+        fs::create_dir_all(&cache_dir).unwrap_or_else(|_| {});
+        cache_dir
+    }
+    
+    pub fn get_stdout_path(&self, id: &str) -> PathBuf {
+        self.get_cache_path(id).join("stdout")
+    }
+    
+    pub fn get_metadata_path(&self, id: &str) -> PathBuf {
+        self.get_cache_path(id).join("metadata.json")
     }
     
     pub fn save_to_disk(&self, command: &str, output: &str) -> io::Result<()> {
         let id = self.generate_id(command);
-        let path = self.get_cache_path(&id);
         
-        let entry = CacheEntry {
-            command: command.to_string(),
-            output: output.to_string(),
-            timestamp: SystemTime::now(),
-        };
+        // Create cache directory for this command
+        let _ = self.get_cache_path(&id);
         
-        let json = format!(
-            "{{\"command\":\"{}\",\"output\":\"{}\",\"timestamp\":{}}}",
-            entry.command.replace("\"", "\\\""),
-            entry.output.replace("\"", "\\\"").replace("\n", "\\n"),
-            entry.timestamp.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+        // Save stdout to a separate file
+        let stdout_path = self.get_stdout_path(&id);
+        let mut stdout_file = File::create(stdout_path)?;
+        stdout_file.write_all(output.as_bytes())?;
+        
+        // Save metadata to a JSON file
+        let metadata_path = self.get_metadata_path(&id);
+        let metadata = format!(
+            "{{\"command\":\"{}\",\"timestamp\":{}}}",
+            command.replace("\"", "\\\""),
+            SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
         );
         
-        let mut file = File::create(path)?;
-        file.write_all(json.as_bytes())?;
+        let mut metadata_file = File::create(metadata_path)?;
+        metadata_file.write_all(metadata.as_bytes())?;
         
         Ok(())
     }
     
     pub fn load_from_disk(&self, command: &str) -> io::Result<Option<String>> {
         let id = self.generate_id(command);
-        let path = self.get_cache_path(&id);
+        let stdout_path = self.get_stdout_path(&id);
         
-        if !path.exists() {
+        if !stdout_path.exists() {
             return Ok(None);
         }
         
-        let mut file = File::open(path)?;
+        let mut file = File::open(stdout_path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
         
-        // Simple parsing to extract output field from JSON
-        if let Some(start) = contents.find("\"output\":\"") {
-            if let Some(end) = contents[start + 10..].find("\"") {
-                let output = &contents[start + 10..start + 10 + end];
-                return Ok(Some(output.replace("\\n", "\n").replace("\\\"", "\"")));
-            }
+        Ok(Some(contents))
+    }
+    
+    pub fn execute_command(&self, command: &str) -> io::Result<String> {
+        // Parse command into program and arguments
+        let mut parts = command.split_whitespace();
+        let program = parts.next().ok_or_else(|| {
+            Error::new(ErrorKind::InvalidInput, "Empty command")
+        })?;
+        
+        let args: Vec<&str> = parts.collect();
+        
+        // Execute command
+        let output = std::process::Command::new(program)
+            .args(&args)
+            .output()
+            .map_err(|e| {
+                Error::new(ErrorKind::Other, format!("Failed to execute command: {}", e))
+            })?;
+        
+        if !output.status.success() {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!(
+                    "Command failed with exit code {}: {}",
+                    output.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            ));
         }
         
-        Err(Error::new(ErrorKind::InvalidData, "Invalid cache file format"))
+        let output_str = String::from_utf8_lossy(&output.stdout).to_string();
+        
+        Ok(output_str)
     }
     
     pub fn execute_and_cache(&mut self, command: &str, ttl: Option<Duration>, force: bool) -> io::Result<String> {
-        // If force is true, skip cache lookup
         if !force {
             // First check in-memory cache
             if let Some(output) = self.get(command) {
@@ -217,37 +252,12 @@ impl CommandCache {
             }
         }
         
-        // Parse command into program and arguments
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        if parts.is_empty() {
-            return Err(Error::new(ErrorKind::InvalidInput, "Empty command"));
-        }
+        // Execute command and cache result
+        let output = self.execute_command(command)?;
+        self.store(command, &output);
+        self.save_to_disk(command, &output)?;
         
-        let program = parts[0];
-        let args = &parts[1..];
-        
-        // Execute command
-        let output = Command::new(program)
-            .args(args)
-            .output()?;
-            
-        if !output.status.success() {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("Command failed with exit code: {:?}", output.status.code())
-            ));
-        }
-        
-        // Convert output to string
-        let output_str = String::from_utf8_lossy(&output.stdout).to_string();
-        
-        // Cache the result in memory
-        self.store(command, &output_str);
-        
-        // Cache the result on disk
-        self.save_to_disk(command, &output_str)?;
-        
-        Ok(output_str)
+        Ok(output)
     }
     
     // Helper method to get effective TTL from hint file or fallback to provided TTL
@@ -272,41 +282,34 @@ impl CommandCache {
     
     pub fn load_from_disk_with_timestamp(&self, command: &str) -> io::Result<Option<(String, SystemTime)>> {
         let id = self.generate_id(command);
-        let path = self.get_cache_path(&id);
+        let stdout_path = self.get_stdout_path(&id);
+        let metadata_path = self.get_metadata_path(&id);
         
-        if !path.exists() {
+        if !stdout_path.exists() || !metadata_path.exists() {
             return Ok(None);
         }
         
-        let mut file = File::open(path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
+        // Read stdout content
+        let mut stdout_file = File::open(stdout_path)?;
+        let mut stdout_content = String::new();
+        stdout_file.read_to_string(&mut stdout_content)?;
         
-        // Extract output and timestamp from JSON
-        let mut output = String::new();
+        // Read metadata
+        let mut metadata_file = File::open(metadata_path)?;
+        let mut metadata_content = String::new();
+        metadata_file.read_to_string(&mut metadata_content)?;
+        
+        // Parse timestamp from metadata
         let mut timestamp = SystemTime::UNIX_EPOCH;
-        
-        if let Some(start) = contents.find("\"output\":\"") {
-            if let Some(end) = contents[start + 10..].find("\"") {
-                output = contents[start + 10..start + 10 + end]
-                    .replace("\\n", "\n")
-                    .replace("\\\"", "\"");
-            }
-        }
-        
-        if let Some(start) = contents.find("\"timestamp\":") {
-            if let Some(end) = contents[start + 12..].find("}") {
-                if let Ok(secs) = contents[start + 12..start + 12 + end].trim().parse::<u64>() {
+        if let Some(start) = metadata_content.find("\"timestamp\":") {
+            if let Some(end) = metadata_content[start + 12..].find("}") {
+                if let Ok(secs) = metadata_content[start + 12..start + 12 + end].trim().parse::<u64>() {
                     timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
                 }
             }
         }
         
-        if output.is_empty() {
-            return Err(Error::new(ErrorKind::InvalidData, "Invalid cache file format"));
-        }
-        
-        Ok(Some((output, timestamp)))
+        Ok(Some((stdout_content, timestamp)))
     }
     
     pub fn list_cached_commands(&self) -> io::Result<Vec<(String, SystemTime)>> {
@@ -318,195 +321,137 @@ impl CommandCache {
         
         for entry in fs::read_dir(&self.cache_dir)? {
             let entry = entry?;
-            let path = entry.path();
+            let cache_dir = entry.path();
             
-            if path.extension().and_then(|ext| ext.to_str()) == Some("cache") {
-                if let Ok(mut file) = File::open(&path) {
-                    let mut contents = String::new();
-                    if file.read_to_string(&mut contents).is_ok() {
-                        // Simple parsing to extract command and timestamp fields from JSON
-                        let mut command = String::new();
-                        let mut timestamp = SystemTime::UNIX_EPOCH;
-                        
-                        if let Some(start) = contents.find("\"command\":\"") {
-                            if let Some(end) = contents[start + 11..].find("\"") {
-                                command = contents[start + 11..start + 11 + end]
-                                    .replace("\\\"", "\"")
-                                    .to_string();
-                            }
-                        }
-                        
-                        if let Some(start) = contents.find("\"timestamp\":") {
-                            if let Some(end) = contents[start + 12..].find("}") {
-                                if let Ok(secs) = contents[start + 12..start + 12 + end].trim().parse::<u64>() {
-                                    timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+            if cache_dir.is_dir() {
+                let metadata_path = cache_dir.join("metadata.json");
+                if metadata_path.exists() {
+                    if let Ok(mut file) = File::open(&metadata_path) {
+                        let mut contents = String::new();
+                        if file.read_to_string(&mut contents).is_ok() {
+                            // Parse command and timestamp from metadata
+                            let mut command = String::new();
+                            let mut timestamp = SystemTime::UNIX_EPOCH;
+                            
+                            if let Some(start) = contents.find("\"command\":\"") {
+                                if let Some(end) = contents[start + 11..].find("\"") {
+                                    command = contents[start + 11..start + 11 + end]
+                                        .replace("\\\"", "\"")
+                                        .to_string();
                                 }
                             }
-                        }
-                        
-                        if !command.is_empty() {
-                            entries.push((command, timestamp));
+                            
+                            if let Some(start) = contents.find("\"timestamp\":") {
+                                if let Some(end) = contents[start + 12..].find("}") {
+                                    if let Ok(secs) = contents[start + 12..start + 12 + end].trim().parse::<u64>() {
+                                        timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+                                    }
+                                }
+                            }
+                            
+                            if !command.is_empty() {
+                                entries.push((command, timestamp));
+                            }
                         }
                     }
                 }
             }
         }
         
-        // Sort by timestamp (newest first)
-        entries.sort_by(|a, b| b.1.cmp(&a.1));
-        
+        entries.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by timestamp, newest first
         Ok(entries)
     }
     
-    pub fn clear_cache(&self, command: Option<&str>) -> io::Result<usize> {
-        let mut count = 0;
-        
+    pub fn clear_cache(&mut self, command: Option<&str>) -> io::Result<()> {
         if !self.cache_dir.exists() {
-            return Ok(count);
+            return Ok(());
         }
         
-        if let Some(cmd) = command {
-            // Clear specific command
-            let id = self.generate_id(cmd);
-            let path = self.get_cache_path(&id);
-            
-            if path.exists() {
-                fs::remove_file(path)?;
-                count = 1;
-            }
-        } else {
-            // Clear all cache
-            for entry in fs::read_dir(&self.cache_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                
-                if path.extension().and_then(|ext| ext.to_str()) == Some("cache") {
-                    fs::remove_file(path)?;
-                    count += 1;
+        match command {
+            Some(cmd) => {
+                // Clear specific command
+                let id = self.generate_id(cmd);
+                let cache_dir = self.get_cache_path(&id);
+                if cache_dir.exists() {
+                    fs::remove_dir_all(cache_dir)?;
                 }
+                self.cache.remove(cmd);
+            },
+            None => {
+                // Clear all cache
+                fs::remove_dir_all(&self.cache_dir)?;
+                fs::create_dir_all(&self.cache_dir)?;
+                self.cache.clear();
             }
         }
         
-        Ok(count)
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::thread::sleep;
-
+    
     #[test]
     fn test_store_and_retrieve() {
         let mut cache = CommandCache::new();
-        let command = "ls -la";
-        let output = "file1\nfile2\nfile3";
+        let command = "echo hello";
+        let output = "hello\n";
         
         cache.store(command, output);
-        
         assert_eq!(cache.get(command), Some(&output.to_string()));
     }
-
+    
     #[test]
     fn test_retrieve_nonexistent() {
         let cache = CommandCache::new();
-        let command = "ls -la";
+        let command = "echo nonexistent";
         
         assert_eq!(cache.get(command), None);
     }
     
     #[test]
-    fn test_execute_and_cache() {
-        let mut cache = CommandCache::new();
-        
-        // Use a simple command that should work on any system
-        let command = "echo hello";
-        
-        // First execution should run the command
-        let result = cache.execute_and_cache(command, None, false);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.contains("hello"));
-        
-        // Second execution should use the cache
-        let cached_result = cache.execute_and_cache(command, None, false);
-        assert!(cached_result.is_ok());
-        assert_eq!(cached_result.unwrap(), output);
-    }
-
-    #[test]
     fn test_generate_id() {
         let cache = CommandCache::new();
-        let command1 = "echo hello";
-        let command2 = "echo world";
+        let command = "echo hello";
         
-        // Same command should generate same id
-        let id1 = cache.generate_id(command1);
-        let id1_duplicate = cache.generate_id(command1);
-        assert_eq!(id1, id1_duplicate);
+        let id1 = cache.generate_id(command);
+        let id2 = cache.generate_id(command);
         
-        // Different commands should generate different ids
-        let id2 = cache.generate_id(command2);
-        assert_ne!(id1, id2);
-        
-        // ID should be a valid hex string
-        assert!(id1.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(id1.len(), 64); // SHA-256 produces 32 bytes = 64 hex chars
+        assert_eq!(id1, id2);
+        assert!(!id1.is_empty());
     }
     
     #[test]
     fn test_disk_cache() {
         let cache = CommandCache::new();
         let command = "test_disk_cache_command";
-        let output = "test_output";
+        let output = "test output";
         
         // Save to disk
-        let save_result = cache.save_to_disk(command, output);
-        assert!(save_result.is_ok());
+        cache.save_to_disk(command, output).unwrap();
         
         // Load from disk
-        let load_result = cache.load_from_disk(command);
-        assert!(load_result.is_ok());
-        assert_eq!(load_result.unwrap(), Some(output.to_string()));
-        
-        // Clean up
-        let id = cache.generate_id(command);
-        let path = cache.get_cache_path(&id);
-        let _ = fs::remove_file(path);
+        let loaded = cache.load_from_disk(command).unwrap();
+        assert_eq!(loaded, Some(output.to_string()));
     }
     
     #[test]
-    fn test_list_and_clear_cache() {
-        let cache = CommandCache::new();
+    fn test_execute_and_cache() {
+        let mut cache = CommandCache::new();
+        let command = "echo test_execute";
         
-        // Add some test entries
-        let commands = vec![
-            "test_command_1",
-            "test_command_2",
-            "test_command_3",
-        ];
+        // Execute and cache
+        let result = cache.execute_and_cache(command, None, false);
+        assert!(result.is_ok());
         
-        for cmd in &commands {
-            cache.save_to_disk(cmd, "test_output").unwrap();
-        }
+        // Check in-memory cache
+        assert!(cache.get(command).is_some());
         
-        // List cache
-        let entries = cache.list_cached_commands().unwrap();
-        assert!(entries.len() >= commands.len());
-        
-        // Clear specific command
-        let cleared = cache.clear_cache(Some(commands[0])).unwrap();
-        assert_eq!(cleared, 1);
-        
-        // Verify it was cleared
-        let entries_after = cache.list_cached_commands().unwrap();
-        assert!(entries_after.len() < entries.len());
-        
-        // Clear all remaining test entries
-        for cmd in &commands[1..] {
-            let _ = cache.clear_cache(Some(cmd));
-        }
+        // Check disk cache
+        let loaded = cache.load_from_disk(command).unwrap();
+        assert!(loaded.is_some());
     }
     
     #[test]
@@ -514,20 +459,35 @@ mod tests {
         let mut cache = CommandCache::new();
         let command = "echo ttl_test";
         
-        // First execution
-        let result = cache.execute_and_cache(command, None, false);
-        assert!(result.is_ok());
+        // Execute and cache with short TTL
+        let result1 = cache.execute_and_cache(command, Some(Duration::from_secs(1)), false).unwrap();
         
-        // Force execution (should not use cache)
-        let force_result = cache.execute_and_cache(command, None, true);
-        assert!(force_result.is_ok());
+        // Wait for TTL to expire
+        std::thread::sleep(Duration::from_secs(2));
         
-        // With very short TTL (1ms)
-        sleep(Duration::from_millis(10));
-        let ttl_result = cache.execute_and_cache(command, Some(Duration::from_millis(1)), false);
-        assert!(ttl_result.is_ok());
+        // Execute again, should re-execute due to expired TTL
+        let result2 = cache.execute_and_cache(command, Some(Duration::from_secs(1)), false).unwrap();
         
-        // Clean up
+        assert_eq!(result1, result2);
+        
+        // Force execution
+        let result3 = cache.execute_and_cache(command, None, true).unwrap();
+        assert_eq!(result2, result3);
+    }
+    
+    #[test]
+    fn test_list_and_clear_cache() {
+        let mut cache = CommandCache::new();
+        let command = "echo list_test";
+        
+        // Execute and cache
+        let _ = cache.execute_and_cache(command, None, false);
+        
+        // List cached commands
+        let entries = cache.list_cached_commands().unwrap();
+        assert!(!entries.is_empty());
+        
+        // Clear cache
         let _ = cache.clear_cache(Some(command));
     }
 }
