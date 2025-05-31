@@ -5,52 +5,89 @@ use serde::{Deserialize, Serialize};
 use glob::Pattern;
 use anyhow::{Result, Context};
 
+/// Represents a .cacher hint file that configures caching behavior
+///
+/// The hint file allows users to customize how caching works for specific commands,
+/// including TTL settings, environment variables to include in the hash, and file
+/// dependencies that should invalidate the cache when changed.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HintFile {
+    /// Default settings that apply to all commands
     #[serde(default)]
     pub default: DefaultSettings,
+    
+    /// Command-specific settings that override defaults
     #[serde(default)]
     pub commands: Vec<CommandHint>,
 }
 
+/// Default settings that apply to all commands
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct DefaultSettings {
+    /// Default time-to-live in seconds for cached entries
     pub ttl: Option<u64>,
+    
+    /// Environment variables to include in the cache key
     #[serde(default)]
     pub include_env: HashSet<String>,
 }
 
+/// Configuration for a specific command pattern
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CommandHint {
+    /// Glob pattern to match commands
     pub pattern: String,
+    
+    /// Time-to-live in seconds for this command
     pub ttl: Option<u64>,
+    
+    /// Environment variables to include in the cache key
     #[serde(default)]
     pub include_env: HashSet<String>,
+    
+    /// Dependencies that should invalidate the cache when changed
     #[serde(default)]
     pub depends_on: Vec<Dependency>,
 }
 
+/// Types of dependencies that can invalidate the cache
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum Dependency {
+    /// A single file dependency
     File {
         file: String,
     },
+    /// A glob pattern matching multiple files
     Files {
         files: String,
     },
+    /// Specific lines in a file matched by a regex pattern
     Lines {
         lines: LinePattern,
     },
 }
 
+/// Configuration for matching specific lines in a file
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LinePattern {
+    /// Path to the file to match lines in
     pub file: String,
+    
+    /// Regex pattern to match lines
     pub pattern: String,
 }
 
 impl HintFile {
+    /// Load a hint file from the specified path
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the hint file
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the parsed HintFile or an error
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read hint file: {}", path.display()))?;
@@ -61,6 +98,15 @@ impl HintFile {
         Ok(hint_file)
     }
     
+    /// Find a command hint that matches the given command
+    ///
+    /// # Arguments
+    ///
+    /// * `command` - The command to match
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the matching CommandHint, or None if no match is found
     pub fn find_matching_command(&self, command: &str) -> Option<&CommandHint> {
         self.commands.iter().find(|cmd| {
             match Pattern::new(&cmd.pattern) {
@@ -70,6 +116,17 @@ impl HintFile {
         })
     }
     
+    /// Find a hint file by searching up from the given directory
+    ///
+    /// Searches for a .cacher.yaml file in the given directory and its parents
+    ///
+    /// # Arguments
+    ///
+    /// * `start_dir` - Directory to start searching from
+    ///
+    /// # Returns
+    ///
+    /// An Option containing the parsed HintFile, or None if no hint file is found
     pub fn find_hint_file(start_dir: &Path) -> Option<Self> {
         let mut current_dir = Some(start_dir);
         
@@ -87,6 +144,15 @@ impl HintFile {
 }
 
 impl Dependency {
+    /// Get all files matching this dependency
+    ///
+    /// # Arguments
+    ///
+    /// * `base_dir` - Base directory for resolving relative paths
+    ///
+    /// # Returns
+    ///
+    /// A Result containing a vector of file paths
     pub fn get_files(&self, base_dir: &Path) -> Result<Vec<String>> {
         match self {
             Dependency::File { file } => {
@@ -112,6 +178,15 @@ impl Dependency {
         }
     }
     
+    /// Calculate a hash of the content for this dependency
+    ///
+    /// # Arguments
+    ///
+    /// * `base_dir` - Base directory for resolving relative paths
+    ///
+    /// # Returns
+    ///
+    /// A Result containing the hash as a hex string
     pub fn get_content_hash(&self, base_dir: &Path) -> Result<String> {
         use sha2::{Sha256, Digest};
         
@@ -125,7 +200,7 @@ impl Dependency {
                 hasher.update(&content);
                 Ok(format!("{:x}", hasher.finalize()))
             },
-            Dependency::Files { files } => {
+            Dependency::Files { files: _ } => {
                 let mut combined_hash = String::new();
                 
                 for file in self.get_files(base_dir)? {
@@ -149,8 +224,16 @@ impl Dependency {
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read file: {}", path.display()))?;
                 
-                let pattern = regex::Regex::new(&lines.pattern)
-                    .with_context(|| format!("Invalid regex pattern: {}", lines.pattern))?;
+                // Use a default pattern if the regex is invalid
+                let pattern = match regex::Regex::new(&lines.pattern) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        // Log the error but don't fail completely
+                        eprintln!("Warning: Invalid regex pattern '{}': {}", lines.pattern, e);
+                        // Use a pattern that matches nothing
+                        regex::Regex::new(r"^$").unwrap()
+                    }
+                };
                 
                 let mut matching_lines = String::new();
                 for line in content.lines() {

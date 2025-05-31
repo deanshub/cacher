@@ -535,12 +535,21 @@ mod tests {
 pub mod hint_file;
 
 impl CommandCache {
+    /// Reload the hint file from the current directory
+    ///
+    /// This is useful when the hint file has been modified or when
+    /// the current directory has changed.
     pub fn reload_hint_file(&mut self) {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         self.current_dir = current_dir;
         self.hint_file = HintFile::find_hint_file(&self.current_dir);
     }
     
+    /// Get a reference to the current hint file, if one is loaded
+    ///
+    /// # Returns
+    ///
+    /// An Option containing a reference to the HintFile, or None if no hint file is loaded
     pub fn get_hint_file(&self) -> Option<&HintFile> {
         self.hint_file.as_ref()
     }

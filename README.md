@@ -87,6 +87,43 @@ cacher clear --command "ls -la"
 cacher hash "ls -la"
 ```
 
+### Using a .cacher hint file
+
+You can create a `.cacher.yaml` file in your project to customize caching behavior:
+
+```yaml
+# Default settings for all commands
+default:
+  ttl: 3600  # Default TTL in seconds
+  include_env:
+    - PATH
+    - NODE_ENV
+
+# Command-specific settings
+commands:
+  # Cache npm build commands for 2 hours
+  - pattern: "npm run build"
+    ttl: 7200
+    include_env:
+      - NODE_ENV
+    depends_on:
+      - files: "src/**/*.{js,jsx,ts,tsx}"  # All source files
+      - files: "package*.json"             # package.json and package-lock.json
+      - file: "tsconfig.json"              # Specific file
+      
+  # Cache docker-compose commands for 1 day
+  - pattern: "docker-compose up *"
+    ttl: 86400
+    include_env:
+      - DOCKER_HOST
+    depends_on:
+      - file: "docker-compose.yml"
+      - files: "Dockerfile*"
+      - lines:
+          file: ".env"
+          pattern: "^(DB_|API_)"  # Only consider DB_ and API_ variables
+```
+
 ## How it works
 
 Cacher uses SHA-256 hashing to generate unique identifiers for each command. When you run a command through Cacher, it:
