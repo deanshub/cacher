@@ -7,6 +7,7 @@ use dirs::cache_dir;
 use std::time::{Duration, SystemTime};
 use std::env;
 use crate::hint_file::{HintFile, Dependency};
+use crate::artifact::{ArtifactManager, ArtifactType};
 
 pub struct CacheEntry {
     pub command: String,
@@ -19,6 +20,7 @@ pub struct CommandCache {
     cache_dir: PathBuf,
     hint_file: Option<HintFile>,
     current_dir: PathBuf,
+    artifact_manager: ArtifactManager,
 }
 
 impl CommandCache {
@@ -36,11 +38,15 @@ impl CommandCache {
         // Try to load hint file
         let hint_file = HintFile::find_hint_file(&current_dir);
         
+        // Create artifact manager
+        let artifact_manager = ArtifactManager::new(cache_dir.clone());
+        
         CommandCache {
             cache: HashMap::new(),
             cache_dir,
             hint_file,
             current_dir,
+            artifact_manager,
         }
     }
 
@@ -387,6 +393,86 @@ impl CommandCache {
         
         Ok(())
     }
+    
+    /// Get artifacts defined for a command in the hint file
+    pub fn get_command_artifacts(&self, command: &str) -> Option<Vec<ArtifactType>> {
+        if let Some(hint_file) = &self.hint_file {
+            if let Some(command_hint) = hint_file.find_matching_command(command) {
+                if !command_hint.artifacts.is_empty() {
+                    return Some(command_hint.artifacts.clone());
+                }
+            }
+        }
+        None
+    }
+    
+    /// Cache artifacts for a command
+    pub fn cache_artifacts(&self, cache_id: String, _command: &str, artifacts: Vec<ArtifactType>) -> io::Result<()> {
+        for artifact in artifacts {
+            self.artifact_manager.cache_artifact(&artifact, &cache_id, &self.current_dir)?;
+        }
+        Ok(())
+    }
+    
+    /// Restore artifacts for a command
+    pub fn restore_artifacts(&self, cache_id: String, artifacts: Vec<ArtifactType>) -> io::Result<bool> {
+        let mut all_restored = true;
+        
+        for artifact in artifacts {
+            if !self.artifact_manager.restore_artifact(&artifact, &cache_id, &self.current_dir)? {
+                all_restored = false;
+            }
+        }
+        
+        Ok(all_restored)
+    }
+    
+    /// Execute a command and cache both its output and artifacts
+    pub fn execute_and_cache_with_artifacts(&mut self, command: &str, ttl: Option<Duration>, force: bool) -> io::Result<String> {
+        let id = self.generate_id(command);
+        
+        if !force {
+            // Check if we have a cached result with artifacts
+            if let Some(artifacts) = self.get_command_artifacts(command) {
+                if self.restore_artifacts(id.clone(), artifacts).is_ok() {
+                    // If we successfully restored artifacts, also return the cached stdout
+                    if let Ok(Some((output, timestamp))) = self.load_from_disk_with_timestamp(command) {
+                        // Check TTL
+                        let effective_ttl = self.get_effective_ttl(command, ttl);
+                        
+                        let use_cache = if let Some(ttl_duration) = effective_ttl {
+                            if let Ok(age) = SystemTime::now().duration_since(timestamp) {
+                                age <= ttl_duration
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        };
+                        
+                        if use_cache {
+                            self.store(command, &output);
+                            return Ok(output);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Execute the command normally
+        let output = self.execute_command(command)?;
+        
+        // Cache the stdout
+        self.store(command, &output);
+        self.save_to_disk(command, &output)?;
+        
+        // Cache any artifacts defined for this command
+        if let Some(artifacts) = self.get_command_artifacts(command) {
+            self.cache_artifacts(id, command, artifacts)?;
+        }
+        
+        Ok(output)
+    }
 }
 
 #[cfg(test)]
@@ -493,6 +579,8 @@ mod tests {
 }
 // Add the hint_file module
 pub mod hint_file;
+// Add the artifact module
+pub mod artifact;
 
 impl CommandCache {
     /// Reload the hint file from the current directory

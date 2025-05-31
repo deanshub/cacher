@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use glob::Pattern;
 use anyhow::{Result, Context};
+use crate::artifact::ArtifactType;
 
 /// Represents a .cacher hint file that configures caching behavior
 ///
@@ -48,6 +49,10 @@ pub struct CommandHint {
     /// Dependencies that should invalidate the cache when changed
     #[serde(default)]
     pub depends_on: Vec<Dependency>,
+    
+    /// Artifacts produced by this command that should be cached
+    #[serde(default)]
+    pub artifacts: Vec<ArtifactType>,
 }
 
 /// Types of dependencies that can invalidate the cache

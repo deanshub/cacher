@@ -11,6 +11,7 @@ A command-line tool for caching command outputs to save time when running repeti
 - List all cached commands
 - Clear specific or all cached entries
 - Get hash ID for any command
+- Cache artifacts like directories and files alongside command outputs
 
 ## Installation
 
@@ -152,6 +153,24 @@ commands:
           pattern: "^(API_|DEV_)"  # Only match lines starting with API_ or DEV_
 ```
 
+#### Artifact Caching
+
+Cache directories or files produced by commands:
+
+```yaml
+commands:
+  - pattern: "npm run build"
+    artifacts:
+      - type: "directory"
+        path: "dist"  # Cache the dist directory
+        
+  - pattern: "docker build -t myapp ."
+    artifacts:
+      - type: "docker_image"
+        name_from: "argument"
+        position: 1  # Extract from the -t argument
+```
+
 #### Complete Example
 
 ```yaml
@@ -185,6 +204,9 @@ commands:
       - lines:
           file: ".env"
           pattern: "^(DB_|API_)"  # Only consider DB_ and API_ variables
+    artifacts:
+      - type: "directory"
+        path: "node_modules"  # Cache node_modules directory
 ```
 
 ## How it works
@@ -195,6 +217,11 @@ Cacher uses SHA-256 hashing to generate unique identifiers for each command. Whe
 2. If not found in memory, checks if it's cached on disk
 3. If not found or if cache is expired (based on TTL), executes the command
 4. Stores the result in both memory and disk cache
+5. If artifacts are defined, caches them alongside the command output
+
+When retrieving a cached command, Cacher will:
+1. Restore any cached artifacts (like directories or files)
+2. Return the cached command output
 
 The cache is stored in your system's cache directory:
 - macOS: `~/Library/Caches/cacher/`
