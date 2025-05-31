@@ -5,7 +5,7 @@ mod tests {
 
     #[test]
     fn test_load_default_only() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/default_only.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/default_only.cacher")).unwrap();
         
         assert_eq!(hint_file.default.ttl, Some(3600));
         assert!(hint_file.default.include_env.is_empty());
@@ -14,7 +14,7 @@ mod tests {
 
     #[test]
     fn test_load_with_env_vars() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/with_env_vars.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/with_env_vars.cacher")).unwrap();
         
         assert_eq!(hint_file.default.ttl, Some(3600));
         assert_eq!(hint_file.default.include_env.len(), 2);
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn test_load_command_patterns() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/command_patterns.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/command_patterns.cacher")).unwrap();
         
         assert_eq!(hint_file.commands.len(), 2);
         
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn test_load_file_dependencies() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/file_dependencies.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/file_dependencies.cacher")).unwrap();
         
         let git_command = hint_file.commands.iter().find(|c| c.pattern == "git status").unwrap();
         assert_eq!(git_command.depends_on.len(), 2);
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn test_load_glob_patterns() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/glob_patterns.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/glob_patterns.cacher")).unwrap();
         
         let npm_command = hint_file.commands.iter().find(|c| c.pattern == "npm run *").unwrap();
         let webpack_command = hint_file.commands.iter().find(|c| c.pattern == "webpack *").unwrap();
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_load_line_patterns() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/line_patterns.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/line_patterns.cacher")).unwrap();
         
         let cat_command = hint_file.commands.iter().find(|c| c.pattern == "cat config.json").unwrap();
         
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_load_complex() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/complex.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/complex.cacher")).unwrap();
         
         assert_eq!(hint_file.default.ttl, Some(3600));
         assert_eq!(hint_file.default.include_env.len(), 2);
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_find_matching_command() {
-        let hint_file = HintFile::from_file(Path::new("tests/fixtures/command_patterns.cacher.yaml")).unwrap();
+        let hint_file = HintFile::from_file(Path::new("tests/fixtures/command_patterns.cacher")).unwrap();
         
         let ls_match = hint_file.find_matching_command("ls -la");
         assert!(ls_match.is_some());

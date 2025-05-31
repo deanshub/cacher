@@ -25,7 +25,7 @@ mod tests {
         fs::write(temp_path.join("docs/README.md"), "# Documentation").unwrap();
         fs::write(temp_path.join("notes.txt"), "Some notes").unwrap();
         
-        // Create a .cacher.yaml hint file that only includes certain files
+        // Create a .cacher hint file that only includes certain files
         let hint_file_content = r#"
 default:
   ttl: 3600
@@ -37,7 +37,7 @@ commands:
       - files: "src/**/*.js"
 "#;
         
-        fs::write(temp_path.join(".cacher.yaml"), hint_file_content).unwrap();
+        fs::write(temp_path.join(".cacher"), hint_file_content).unwrap();
         
         // Change to the temp directory
         let original_dir = std::env::current_dir().unwrap();

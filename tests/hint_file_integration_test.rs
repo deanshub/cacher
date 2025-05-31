@@ -11,7 +11,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
         
-        // Create a .cacher.yaml file in the temp directory
+        // Create a .cacher file in the temp directory
         let hint_file_content = r#"
 default:
   ttl: 60
@@ -23,7 +23,7 @@ commands:
       - TEST_ENV_VAR
 "#;
         
-        fs::write(temp_path.join(".cacher.yaml"), hint_file_content).unwrap();
+        fs::write(temp_path.join(".cacher"), hint_file_content).unwrap();
         
         // Change to the temp directory
         let original_dir = std::env::current_dir().unwrap();
@@ -50,7 +50,7 @@ commands:
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
         
-        // Create a .cacher.yaml file in the temp directory
+        // Create a .cacher file in the temp directory
         let hint_file_content = r#"
 default:
   ttl: 60
@@ -60,7 +60,7 @@ commands:
     ttl: 10
 "#;
         
-        fs::write(temp_path.join(".cacher.yaml"), hint_file_content).unwrap();
+        fs::write(temp_path.join(".cacher"), hint_file_content).unwrap();
         
         // Change to the temp directory
         let original_dir = std::env::current_dir().unwrap();
