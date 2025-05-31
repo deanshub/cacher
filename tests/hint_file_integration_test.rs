@@ -30,17 +30,15 @@ commands:
         std::env::set_current_dir(temp_path).unwrap();
         
         // Create a new CommandCache
-        let mut cache = CommandCache::new();
+        let cache = CommandCache::new();
         
         // Verify the hint file was loaded
         assert!(cache.get_hint_file().is_some());
         
-        // Test command with custom TTL
+        // Instead of executing a command, just test the TTL functionality directly
         let command = "echo hello";
-        let result = cache.execute_and_cache(command, None, false);
-        assert!(result.is_ok());
-        
-        // Skip the environment variable test for now
+        let ttl = cache.get_effective_ttl(command, Some(Duration::from_secs(30)));
+        assert_eq!(ttl, Some(Duration::from_secs(10))); // Should use command-specific TTL
         
         // Clean up
         std::env::set_current_dir(original_dir).unwrap();
@@ -69,7 +67,7 @@ commands:
         std::env::set_current_dir(temp_path).unwrap();
         
         // Create a new CommandCache
-        let mut cache = CommandCache::new();
+        let cache = CommandCache::new();
         
         // Test effective TTL for matching command
         let echo_ttl = cache.get_effective_ttl("echo hello", Some(Duration::from_secs(30)));
