@@ -14,9 +14,27 @@ A command-line tool for caching command outputs to save time when running repeti
 
 ## Installation
 
+### Pre-built Binaries
+
+You can download pre-built binaries for your platform from the [latest GitHub release](https://github.com/deanshub/cacher/releases/latest):
+
+- [Linux (x86_64)](https://github.com/deanshub/cacher/releases/latest/download/cacher-linux-amd64)
+- [Linux (ARM64)](https://github.com/deanshub/cacher/releases/latest/download/cacher-linux-arm64)
+- [macOS (x86_64)](https://github.com/deanshub/cacher/releases/latest/download/cacher-macos-amd64)
+- [macOS (ARM64/Apple Silicon)](https://github.com/deanshub/cacher/releases/latest/download/cacher-macos-arm64)
+- [Windows (x86_64)](https://github.com/deanshub/cacher/releases/latest/download/cacher-windows-amd64.exe)
+
+After downloading, make the binary executable (Linux/macOS):
+
+```bash
+chmod +x cacher-*
+```
+
+### From Source
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cacher.git
+git clone https://github.com/deanshub/cacher.git
 cd cacher
 
 # Build the project
@@ -24,6 +42,12 @@ cargo build --release
 
 # Optional: Install the binary
 cargo install --path .
+```
+
+### Using Cargo
+
+```bash
+cargo install cacher
 ```
 
 ## Usage
