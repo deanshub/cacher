@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use cacher::hint_file::{HintFile, CommandHint, Dependency};
+    use cacher::hint_file::{HintFile, Dependency};
 
     #[test]
     fn test_load_default_only() {
@@ -59,8 +59,8 @@ mod tests {
         assert_eq!(webpack_command.depends_on.len(), 2);
         
         // Check for glob patterns
-        if let Dependency::Files { pattern } = &npm_command.depends_on[0] {
-            assert_eq!(pattern, "package*.json");
+        if let Dependency::Files { files } = &npm_command.depends_on[0] {
+            assert_eq!(files, "package*.json");
         } else {
             panic!("Expected Files dependency");
         }
@@ -74,9 +74,9 @@ mod tests {
         
         assert_eq!(cat_command.depends_on.len(), 1);
         
-        if let Dependency::Lines { file, pattern } = &cat_command.depends_on[0] {
-            assert_eq!(file, ".env");
-            assert_eq!(pattern, "^DB_*");
+        if let Dependency::Lines { lines } = &cat_command.depends_on[0] {
+            assert_eq!(lines.file, ".env");
+            assert_eq!(lines.pattern, "^DB_*");
         } else {
             panic!("Expected Lines dependency");
         }
@@ -97,8 +97,8 @@ mod tests {
         
         // Check for complex glob pattern
         let src_files_dep = npm_command.depends_on.iter().find(|d| {
-            if let Dependency::Files { pattern } = d {
-                pattern == "src/**/*.{js,jsx,ts,tsx}"
+            if let Dependency::Files { files } = d {
+                files == "src/**/*.{js,jsx,ts,tsx}"
             } else {
                 false
             }

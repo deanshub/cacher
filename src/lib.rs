@@ -420,3 +420,5 @@ mod tests {
         let _ = cache.clear_cache(Some(command));
     }
 }
+// Add the hint_file module
+pub mod hint_file;
