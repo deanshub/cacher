@@ -123,7 +123,7 @@ impl HintFile {
     
     /// Find a hint file by searching up from the given directory
     ///
-    /// Searches for a .cacher.yaml file in the given directory and its parents
+    /// Searches for a .cacher file in the given directory and its parents
     ///
     /// # Arguments
     ///
@@ -136,7 +136,7 @@ impl HintFile {
         let mut current_dir = Some(start_dir);
         
         while let Some(dir) = current_dir {
-            let hint_file_path = dir.join(".cacher.yaml");
+            let hint_file_path = dir.join(".cacher");
             if hint_file_path.exists() {
                 return Self::from_file(&hint_file_path).ok();
             }

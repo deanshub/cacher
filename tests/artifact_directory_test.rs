@@ -17,7 +17,7 @@ mod tests {
         fs::create_dir_all(&source_dir).unwrap();
         fs::write(source_dir.join("file1.txt"), "content1").unwrap();
         
-        // Create a .cacher.yaml file with directory artifact configuration
+        // Create a .cacher file with directory artifact configuration
         let hint_file_content = r#"
 commands:
   - pattern: "echo test_artifact"
@@ -27,7 +27,7 @@ commands:
         path: "source"
 "#;
         
-        fs::write(temp_path.join(".cacher.yaml"), hint_file_content).unwrap();
+        fs::write(temp_path.join(".cacher"), hint_file_content).unwrap();
         
         // Change to the temp directory
         let original_dir = std::env::current_dir().unwrap();

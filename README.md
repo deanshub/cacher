@@ -90,7 +90,7 @@ cacher hash "ls -la"
 
 ### Using a .cacher hint file
 
-You can create a `.cacher.yaml` file in your project to customize caching behavior. Cacher will automatically look for this file in the current directory and its parent directories.
+You can create a `.cacher` file in your project to customize caching behavior. Cacher will automatically look for this file in the current directory and its parent directories.
 
 #### Basic Configuration
 
