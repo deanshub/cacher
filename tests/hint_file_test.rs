@@ -120,4 +120,17 @@ mod tests {
         let no_match = hint_file.find_matching_command("echo hello");
         assert!(no_match.is_none());
     }
+    
+    #[test]
+    fn test_no_hint_file() {
+        // Create a temporary directory that definitely doesn't have a hint file
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+        
+        // Try to find a hint file in the temp directory
+        let hint_file = HintFile::find_hint_file(temp_path);
+        
+        // Should return None since there's no hint file
+        assert!(hint_file.is_none());
+    }
 }
